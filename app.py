@@ -26,9 +26,9 @@ INFERENCE_TIMEOUT_S = float(os.getenv("INFERENCE_TIMEOUT_S", "20"))
 # Alt text refinement configuration
 ALT_REFINEMENT_PROMPT = os.getenv(
     "ALT_REFINEMENT_PROMPT",
-    "Create SEO-optimized alt text (max 6 words): {caption}\nAlt:"
+    "Create SEO-optimized alt text (8-12 words): {caption}\nAlt:"
 )
-ALT_REFINEMENT_MAX_LENGTH = int(os.getenv("ALT_REFINEMENT_MAX_LENGTH", "20"))
+ALT_REFINEMENT_MAX_LENGTH = int(os.getenv("ALT_REFINEMENT_MAX_LENGTH", "30"))
 ALT_REFINEMENT_TEMPERATURE = float(os.getenv("ALT_REFINEMENT_TEMPERATURE", "0.3"))
 
 # BLIP model globals for image captioning
@@ -185,7 +185,7 @@ def run_inference(img: Image.Image) -> str:
             inputs = {k: v.to("mps") for k, v in inputs.items()}
 
         with torch.no_grad():
-            output = BLIP_MODEL.generate(**inputs, max_length=50, num_beams=4, early_stopping=True)
+            output = BLIP_MODEL.generate(**inputs, max_length=50, num_beams=6, early_stopping=True)
 
         caption = BLIP_PROCESSOR.decode(output[0], skip_special_tokens=True)
         return caption
@@ -196,14 +196,14 @@ def run_inference(img: Image.Image) -> str:
 
 
 def refine_alt_text(caption_text: str) -> str:
-    """Convert descriptive caption to SEO-optimized alt text (~6 words)."""
+    """Convert descriptive caption to SEO-optimized alt text (8-12 words)."""
     logger.info(f"Refining alt text from caption: '{caption_text}'")
 
     # Load model if not already loaded
     load_alt_refinement_model()
 
     try:
-        prompt = f"Create SEO-optimized alt text (max 6 words): {caption_text}\nAlt:"
+        prompt = f"Create SEO-optimized alt text (8-12 words): {caption_text}\nAlt:"
         inputs = ALT_TOKENIZER(prompt, return_tensors="pt", padding=True)
 
         # Move inputs to same device as model
@@ -229,10 +229,12 @@ def refine_alt_text(caption_text: str) -> str:
         else:
             alt_text = generated_text.replace(prompt, "").strip()
 
-        # Clean up and ensure ~6 words or less
+        # Clean up and ensure 8-12 words
         words = alt_text.split()
-        if len(words) > 8:  # If too long, truncate to 6 words
-            alt_text = " ".join(words[:6])
+        if len(words) > 12:  # If too long, truncate to 10 words
+            alt_text = " ".join(words[:10])
+        elif len(words) < 8:  # If too short, expand or use original caption
+            alt_text = caption_text
         elif len(words) == 0:  # If empty, use original caption
             alt_text = caption_text
 
@@ -244,8 +246,8 @@ def refine_alt_text(caption_text: str) -> str:
 
     except Exception as exc:
         logger.warning(f"Alt text refinement failed: {exc}")
-        # Simple fallback: take first 6 words
-        words = caption_text.split()[:6]
+        # Simple fallback: take first 10 words
+        words = caption_text.split()[:10]
         return " ".join(words) if words else caption_text
 
 
@@ -268,7 +270,7 @@ async def infer_caption_from_data(image_data: bytes, filename: str, content_type
             inputs = {k: v.to("mps") for k, v in inputs.items()}
 
         with torch.no_grad():
-            output = BLIP_MODEL.generate(**inputs, max_length=50, num_beams=4, early_stopping=True)
+            output = BLIP_MODEL.generate(**inputs, max_length=50, num_beams=6, early_stopping=True)
 
         caption = BLIP_PROCESSOR.decode(output[0], skip_special_tokens=True)
         logger.info(f"BLIP generated caption: '{caption}'")
